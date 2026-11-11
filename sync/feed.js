@@ -13,7 +13,7 @@ const dir = process.argv[2];
 const readAll = (sub) => { const m = {}, d = path.join(dir, sub); if (fs.existsSync(d)) fs.readdirSync(d).filter((f) => f.endsWith(".json")).forEach((f) => { m[f.slice(0, -5)] = JSON.parse(fs.readFileSync(path.join(d, f), "utf8")); }); return m; };
 (function () {
   const AGREEMENT = { full: 38.49, prob: 33.99, old: 32.56, since: "2026-06-20" };
-  const DEFAULTS = { rate: 33.99, deductPct: null, lunchMin: 30, otAfter: 10, dtAfter: 12, wkOtAfter: 40, wkDtAfter: 48, statDayHours: 10, restHours: 10, stat: {} };
+  const DEFAULTS = { rate: 33.99, deductPct: null, lunchMin: 30, otAfter: 10, dtAfter: 12, wkOtAfter: 40, wkDtAfter: 48, statDayHours: 10, restHours: 10, premAfternoon: 1, premGraveyard: 2, stat: {} };
   const ANCHOR = new Date(2026, 9, 19); // Oct 19, 2026 — start of a Fuelex biweekly period (Mon)
   const FIRST_DAY = "2026-09-08"; // first day worked at Fuelex
   const pad = (n) => String(n).padStart(2, "0");
@@ -126,6 +126,16 @@ const readAll = (sub) => { const m = {}, d = path.join(dir, sub); if (fs.existsS
     return e;
   }
 
+  // Art. 6.05(a) + 5.14: afternoon shift (starts 11:00-19:59) and graveyard shift (starts 20:00-03:59) pay a flat $/h on every
+  // hour of the shift, overtime hours too, added on top of the rate (not multiplied by 1.5x or 2x).
+  function shiftPremium(startHM) {
+    if (!startHM) return 0;
+    const [h, m] = startHM.split(":").map(Number), t = h * 60 + m;
+    if (t >= 660 && t < 1200) return num(state.settings.premAfternoon, 1);
+    if (t >= 1200 || t < 240) return num(state.settings.premGraveyard, 2);
+    return 0;
+  }
+
   let TODAY_SEGS = null;
   function computeAll(now, extra) {
     const S = state.settings, rate = num(S.rate);
@@ -159,7 +169,8 @@ const readAll = (sub) => { const m = {}, d = path.join(dir, sub); if (fs.existsS
       let nextMult = null;
       if (b.status === "live") { let y = P, s2 = st, t2 = tot, prev = mult; while (y < P + 1440) { const m = multAt(y, s2, t2); if (m > prev) { nextAt = y - P; nextMult = m; break; } prev = m; if (m === 1) s2 += 1; t2 += 1; y += 1; } }
       W.st = st; W.tot = tot;
-      R[d] = { ...b, st: sM, ot: oM, dt: dM, gross: rate / 60 * (sM + 1.5 * oM + 2 * dM), mult, nextAt, nextMult, hol, weekStraight: st, segs, restMin };
+      const prem = shiftPremium(state.shifts[d].start);
+      R[d] = { ...b, st: sM, ot: oM, dt: dM, gross: rate / 60 * (sM + 1.5 * oM + 2 * dM) + prem * P / 60, prem, mult, nextAt, nextMult, hol, weekStraight: st, segs, restMin };
     }
     // today's rate steps even before a shift is entered (the watch can start one): from this week's totals so far
     const td = ymd(now);
@@ -192,7 +203,10 @@ const readAll = (sub) => { const m = {}, d = path.join(dir, sub); if (fs.existsS
     if (sd < p0.from) before = statSoFar(p0) * rate;
     const startMs = c && c.startAt ? c.startAt.getTime() : 0, endMs = c && c.endAt ? c.endAt.getTime() : 0;
     const lunch = sh && sh.lunch ? num(state.settings.lunchMin, 30) : 0;
-    const segs = (c && R[sd] && R[sd].segs) || (sd === today && TODAY_SEGS) || [[0, 1], [600, 1.5], [720, 2]];
+    const segs0 = (c && R[sd] && R[sd].segs) || (sd === today && TODAY_SEGS) || [[0, 1], [600, 1.5], [720, 2]];
+    // a shift premium ($/h on top) reaches the watch as a slightly higher multiplier, e.g. 1x + $1/h at $32.56 = 1.0307
+    const prem = c && c.prem ? c.prem : 0;
+    const segs = prem && rate > 0 ? segs0.map(([from, m]) => [from, Math.round((m + prem / rate) * 10000) / 10000]) : segs0;
     // Deductions grow with the size of the cheque, so the watch's take-home % is set for this day's real gross:
     // a finished day (or one with a finish time) uses its full gross; a running day is sized to the next whole hour,
     // at least 10 h, so the number only changes once an hour; a day with no shift adds nothing, like the page.
