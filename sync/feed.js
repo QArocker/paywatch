@@ -61,9 +61,12 @@ const readAll = (sub) => { const m = {}, d = path.join(dir, sub); if (fs.existsS
   };
   const holsIn = (p) => Object.keys(HOL).filter((d) => d >= p.from && d <= p.to).sort();
   const statOverride = (p) => { const v = (state.settings.stat || {})[p.key]; return v === undefined || v === null || v === "" ? null : num(v); };
-  const statHoursFor = (p) => { const o = statOverride(p); return o !== null ? o : holsIn(p).length * num(state.settings.statDayHours, 10); };
-  const statSoFar = (p) => { const today = ymd(new Date()); if (p.to < today) return statHoursFor(p); const o = statOverride(p); return o !== null ? o : holsIn(p).filter((d) => d <= today).length * num(state.settings.statDayHours, 10); };
-  const statCreditOn = (d) => { const p = periodOf(d); const n = holsIn(p).length || 1; return statHoursFor(p) / n * 60; };
+  // a holiday switched off in the Shifts list (not paid, e.g. not eligible) is left out of pay and of the weekly overtime count
+  const statIsOff = (d) => !!(state.settings.statOff || {})[d];
+  const holsPaid = (p) => holsIn(p).filter((d) => !statIsOff(d));
+  const statHoursFor = (p) => { const o = statOverride(p); return o !== null ? o : holsPaid(p).length * num(state.settings.statDayHours, 10); };
+  const statSoFar = (p) => { const today = ymd(new Date()); if (p.to < today) return statHoursFor(p); const o = statOverride(p); return o !== null ? o : holsPaid(p).filter((d) => d <= today).length * num(state.settings.statDayHours, 10); };
+  const statCreditOn = (d) => { if (statIsOff(d)) return 0; const p = periodOf(d); const n = holsPaid(p).length || 1; return statHoursFor(p) / n * 60; };
   function periodOf(date) { const days = Math.round((fromYmd(date) - ANCHOR) / 86400000); return period(Math.floor(days / 14) - Math.floor(Math.round((midnight(new Date()) - ANCHOR) / 86400000) / 14)); }
 
   // ---------- money / time ----------
