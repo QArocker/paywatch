@@ -65,7 +65,8 @@ const readAll = (sub) => { const m = {}, d = path.join(dir, sub); if (fs.existsS
   const statIsOff = (d) => !!(state.settings.statOff || {})[d];
   const holsPaid = (p) => holsIn(p).filter((d) => !statIsOff(d));
   const statHoursFor = (p) => { const o = statOverride(p); return o !== null ? o : holsPaid(p).length * num(state.settings.statDayHours, 10); };
-  const statSoFar = (p) => { const today = ymd(new Date()); if (p.to < today) return statHoursFor(p); const o = statOverride(p); return o !== null ? o : holsPaid(p).filter((d) => d <= today).length * num(state.settings.statDayHours, 10); };
+  // a holiday that is switched on counts in its pay period's total from the start, so its effect on the cheque shows ahead of the day
+  const statSoFar = (p) => statHoursFor(p);
   const statCreditOn = (d) => { if (statIsOff(d)) return 0; const p = periodOf(d); const n = holsPaid(p).length || 1; return statHoursFor(p) / n * 60; };
   function periodOf(date) { const days = Math.round((fromYmd(date) - ANCHOR) / 86400000); return period(Math.floor(days / 14) - Math.floor(Math.round((midnight(new Date()) - ANCHOR) / 86400000) / 14)); }
 
