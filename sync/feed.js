@@ -62,7 +62,9 @@ const readAll = (sub) => { const m = {}, d = path.join(dir, sub); if (fs.existsS
   const holsIn = (p) => Object.keys(HOL).filter((d) => d >= p.from && d <= p.to).sort();
   const statOverride = (p) => { const v = (state.settings.stat || {})[p.key]; return v === undefined || v === null || v === "" ? null : num(v); };
   // a holiday switched off in the Shifts list (not paid, e.g. not eligible) is left out of pay and of the weekly overtime count
-  const statIsOff = (d) => !!(state.settings.statOff || {})[d];
+  // Sep 30, 2026 wasn't paid: under BC rules a new employee isn't eligible for stat pay in the first 30 days. It starts switched off.
+  const STAT_NOT_PAID = { "2026-09-30": "not paid: first 30 days on the job (BC rules)" };
+  const statIsOff = (d) => { const v = (state.settings.statOff || {})[d]; return v === undefined ? !!STAT_NOT_PAID[d] : !!v; };
   const holsPaid = (p) => holsIn(p).filter((d) => !statIsOff(d));
   const statHoursFor = (p) => { const o = statOverride(p); return o !== null ? o : holsPaid(p).length * num(state.settings.statDayHours, 10); };
   // a holiday that is switched on counts in its pay period's total from the start, so its effect on the cheque shows ahead of the day
