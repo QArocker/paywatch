@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 KEY="$1"; DIR="$(cd "$2" && pwd)"
 [ -f "$DIR/settings/main.json" ] || { echo "dump has no settings/main.json" >&2; exit 2; }
-[ -d "$DIR/shifts" ] || mkdir -p "$DIR/shifts"
+[ -d "$DIR/shifts" ] && [ -d "$DIR/stubs" ] || { echo "dump has no shifts/ or stubs/ folder" >&2; exit 2; }
 # Artem's clock: take the UTC offset from the system's time zone data and give Node a fixed-offset zone
 OFF=$(TZ=America/Vancouver date +%z)
 if [ "${OFF:3:2}" = "00" ]; then
