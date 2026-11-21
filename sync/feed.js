@@ -66,10 +66,15 @@ const readAll = (sub) => { const m = {}, d = path.join(dir, sub); if (fs.existsS
   const STAT_NOT_PAID = { "2026-09-30": "not paid: first 30 days on the job (BC rules)" };
   const statIsOff = (d) => { const v = (state.settings.statOff || {})[d]; return v === undefined ? !!STAT_NOT_PAID[d] : !!v; };
   const holsPaid = (p) => holsIn(p).filter((d) => !statIsOff(d));
-  const statHoursFor = (p) => { const o = statOverride(p); return o !== null ? o : holsPaid(p).length * num(state.settings.statDayHours, 10); };
+  // Home study: paid hours done at home, entered per day in the Shifts list. Paid at straight time, on top of shifts and holidays,
+  // and counted in that week's hours for the weekly 40 h / 48 h overtime rules.
+  const studyOn = (d) => Math.max(0, num((state.settings.study || {})[d]));
+  const studyIn = (p) => Object.keys(state.settings.study || {}).filter((d) => d >= p.from && d <= p.to).reduce((a, d) => a + studyOn(d), 0);
+  const holHoursFor = (p) => { const o = statOverride(p); return o !== null ? o : holsPaid(p).length * num(state.settings.statDayHours, 10); };
+  const statHoursFor = (p) => holHoursFor(p) + studyIn(p);
   // a holiday that is switched on counts in its pay period's total from the start, so its effect on the cheque shows ahead of the day
   const statSoFar = (p) => statHoursFor(p);
-  const statCreditOn = (d) => { if (statIsOff(d)) return 0; const p = periodOf(d); const n = holsPaid(p).length || 1; return statHoursFor(p) / n * 60; };
+  const statCreditOn = (d) => { if (statIsOff(d)) return 0; const p = periodOf(d); const n = holsPaid(p).length || 1; return holHoursFor(p) / n * 60; };
   function periodOf(date) { const days = Math.round((fromYmd(date) - ANCHOR) / 86400000); return period(Math.floor(days / 14) - Math.floor(Math.round((midnight(new Date()) - ANCHOR) / 86400000) / 14)); }
 
   // ---------- money / time ----------
@@ -154,12 +159,14 @@ const readAll = (sub) => { const m = {}, d = path.join(dir, sub); if (fs.existsS
     (extra || []).forEach((p) => { weeks.add(p.from); weeks.add(ymd(addDays(p.start, 7))); });
     const dates = new Set(Object.keys(state.shifts).filter((d) => weeks.has(weekKey(d))));
     Object.keys(HOL).forEach((d) => { if (weeks.has(weekKey(d))) dates.add(d); });
+    Object.keys(S.study || {}).forEach((d) => { if (weeks.has(weekKey(d)) && studyOn(d) > 0) dates.add(d); });
     const R = {}, wk = {};
     for (const d of [...dates].sort()) {
       const W = wk[weekKey(d)] || (wk[weekKey(d)] = { st: 0, tot: 0 });
       const hol = HOL[d] || null;
       if (hol) { const cr = statCreditOn(d); W.st += cr; W.tot += cr; }
-      if (!state.shifts[d]) continue;
+      const sc = studyOn(d) * 60;   // home study counts in the week's hours, after that day's shift
+      if (!state.shifts[d]) { W.st += sc; W.tot += sc; continue; }
       const b = calc(d, state.shifts[d], now), P = b.paid;
       // Art. 5.11(a): starting with less than 10 h of rest pays the overtime rate until those 10 h would have been up
       let restMin = 0;
@@ -174,7 +181,7 @@ const readAll = (sub) => { const m = {}, d = path.join(dir, sub); if (fs.existsS
       let nextAt = null;
       let nextMult = null;
       if (b.status === "live") { let y = P, s2 = st, t2 = tot, prev = mult; while (y < P + 1440) { const m = multAt(y, s2, t2); if (m > prev) { nextAt = y - P; nextMult = m; break; } prev = m; if (m === 1) s2 += 1; t2 += 1; y += 1; } }
-      W.st = st; W.tot = tot;
+      W.st = st + sc; W.tot = tot + sc;
       const prem = shiftPremium(state.shifts[d].start);
       R[d] = { ...b, st: sM, ot: oM, dt: dM, gross: rate / 60 * (sM + 1.5 * oM + 2 * dM) + prem * P / 60, prem, mult, nextAt, nextMult, hol, weekStraight: st, segs, restMin };
     }
